@@ -297,10 +297,8 @@ static NSMutableDictionary *nowPlayingInfo = nil;
     if (@available(iOS 10.0, macOS 10.12.2, *)) {
         updated |= [self updateNowPlayingField:MPNowPlayingInfoPropertyIsLiveStream value:mediaItem[@"isLive"]];
     }
-    if (updated) {
-        //NSLog(@"### updating nowPlayingInfo");
-        center.nowPlayingInfo = nowPlayingInfo;
-    }
+    //NSLog(@"### updating nowPlayingInfo");
+    center.nowPlayingInfo = nowPlayingInfo;
   
     // TODO: List of all unused "nowPlayingInfo" keys, we might want to use these at some point:
     //
