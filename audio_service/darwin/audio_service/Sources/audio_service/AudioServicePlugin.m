@@ -96,7 +96,7 @@ static NSMutableDictionary *nowPlayingInfo = nil;
         commandCenter.previousTrackCommand,
         commandCenter.nextTrackCommand,
         commandCenter.skipForwardCommand,
-        [NSNull null],
+        commandCenter.likeCommand, 
         [NSNull null], // changePlaybackPositionCommand, put below
         commandCenter.togglePlayPauseCommand,
         [NSNull null],
@@ -130,8 +130,8 @@ static NSMutableDictionary *nowPlayingInfo = nil;
     // Rating
     [commandCenter.ratingCommand setEnabled:NO];
     // Feedback
-    [commandCenter.likeCommand setEnabled:NO];
-    [commandCenter.dislikeCommand setEnabled:NO];
+    [commandCenter.likeCommand setEnabled:YES];
+    [commandCenter.dislikeCommand setEnabled:YES];
     [commandCenter.bookmarkCommand setEnabled:NO];
 }
 
@@ -288,6 +288,23 @@ static NSMutableDictionary *nowPlayingInfo = nil;
     updated |= [self updateNowPlayingField:MPNowPlayingInfoPropertyPlaybackRate value:(playing ? speed : [NSNumber numberWithDouble: 0.0])];
     updated |= [self updateNowPlayingField:MPNowPlayingInfoPropertyDefaultPlaybackRate value:(playing ? speed : [NSNumber numberWithDouble: 0.0])];
     updated |= [self updateNowPlayingField:MPNowPlayingInfoPropertyElapsedPlaybackTime value:[NSNumber numberWithDouble:([position doubleValue] / 1000)]];
+    NSDictionary *ratingDict = mediaItem[@"rating"];
+    if (ratingDict && ratingDict != (id)[NSNull null]) {
+        int type = [ratingDict[@"type"] intValue];
+        id value = ratingDict[@"value"];
+        if (type == 1) { 
+            BOOL isLiked = [value boolValue];
+
+            updated |= [self updateNowPlayingField:MPMediaItemPropertyRating value:(isLiked ? @(1.0) : @(0.0))];
+
+            if (@available(iOS 13.0, *)) {
+                MPRemoteCommandCenter *cc = commandCenter ? commandCenter : [MPRemoteCommandCenter sharedCommandCenter];
+                [cc.likeCommand setActive:isLiked];
+                [cc.dislikeCommand setActive:NO];
+            }
+        }
+    }
+
     MPNowPlayingInfoCenter *center = [MPNowPlayingInfoCenter defaultCenter];
 #if TARGET_OS_OSX
     if (@available(iOS 13.0, macOS 10.12.2, *)) {
@@ -297,8 +314,10 @@ static NSMutableDictionary *nowPlayingInfo = nil;
     if (@available(iOS 10.0, macOS 10.12.2, *)) {
         updated |= [self updateNowPlayingField:MPNowPlayingInfoPropertyIsLiveStream value:mediaItem[@"isLive"]];
     }
-    //NSLog(@"### updating nowPlayingInfo");
-    center.nowPlayingInfo = nowPlayingInfo;
+    if (updated) {
+        //NSLog(@"### updating nowPlayingInfo");
+        center.nowPlayingInfo = nowPlayingInfo;
+    }
   
     // TODO: List of all unused "nowPlayingInfo" keys, we might want to use these at some point:
     //
@@ -396,10 +415,19 @@ static NSMutableDictionary *nowPlayingInfo = nil;
             }
             break;
         case ASetRating:
-            // TODO:
-            // commandCenter.ratingCommand
-            // commandCenter.dislikeCommand
-            // commandCenter.bookmarkCommand
+            if (enable) {
+                [commandCenter.likeCommand setEnabled:YES];
+                [commandCenter.likeCommand addTarget:self action:@selector(onLike:)];
+
+                [commandCenter.dislikeCommand setEnabled:YES];
+                [commandCenter.dislikeCommand addTarget:self action:@selector(onDislike:)];
+            } else {
+                [commandCenter.likeCommand setEnabled:NO];
+                [commandCenter.likeCommand removeTarget:nil];
+                
+                [commandCenter.dislikeCommand setEnabled:NO];
+                [commandCenter.dislikeCommand removeTarget:nil];
+            }
             break;
         case ASeekTo:
             if (@available(iOS 9.1, macOS 10.12.2, *)) {
@@ -572,4 +600,30 @@ static NSMutableDictionary *nowPlayingInfo = nil;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+- (MPRemoteCommandHandlerStatus) onLike: (MPRemoteCommandEvent *) event {
+    MPRemoteCommandCenter *center = [MPRemoteCommandCenter sharedCommandCenter];
+    BOOL isCurrentlyLiked = center.likeCommand.isActive;
+    BOOL targetStatus = !isCurrentlyLiked;
+    NSDictionary *rating = @{
+        @"type": @(1), 
+        @"value": @(targetStatus)
+    };
+    [handlerChannel invokeMethod:@"setRating" arguments:@{
+        @"rating": rating,
+        @"extras": @{}
+    }];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
+
+- (MPRemoteCommandHandlerStatus) onDislike: (MPRemoteCommandEvent *) event {
+    NSDictionary *rating = @{
+        @"type": @(1), 
+        @"value": @(NO)
+    };
+    [handlerChannel invokeMethod:@"setRating" arguments:@{
+        @"rating": rating,
+        @"extras": @{}
+    }];
+    return MPRemoteCommandHandlerStatusSuccess;
+}
 @end
